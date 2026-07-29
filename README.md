@@ -9,8 +9,12 @@ Batch-resize images into **one output folder per size**. Supports fit-to-width a
 - Folder or multi-file input with native file pickers
 - **Fit to width** — keep aspect ratio
 - **Exact crop** — crop by anchor (center, top, bottom, left, right), then resize to `W×H`
+- Size presets: Web, Social, HD
 - Multiple sizes per job
 - Output format: Original, JPG, or WebP
+- Optional size suffix in filenames (`photo_1920.webp`)
+- Remembers last folders, sizes, and options
+- Open output folder when a batch finishes
 - Quality control, skip upscale, strip EXIF
 - Background processing with progress, cancel, and log
 - In-app **Check for updates** via [GitHub Releases](https://github.com/nirjondipo/crop/releases)

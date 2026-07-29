@@ -2,7 +2,7 @@
 ; Output: dist\CropSetup.exe
 
 #define MyAppName "WDG Crop System"
-#define MyAppVersion "1.0.3"
+#define MyAppVersion "2.0.0"
 #define MyAppPublisher "WebDGallery"
 #define MyAppURL "https://github.com/nirjondipo/crop"
 #define MyAppExeName "Crop.exe"
@@ -22,7 +22,7 @@ DisableProgramGroupPage=yes
 DisableDirPage=no
 UsePreviousAppDir=yes
 PrivilegesRequired=lowest
-CloseApplications=force
+CloseApplications=yes
 CloseApplicationsFilter=Crop.exe,CropControl.exe
 RestartApplications=no
 OutputDir=..\..\dist
@@ -82,14 +82,15 @@ var
 begin
   Result := '';
   NeedsRestart := False;
-  { PyInstaller onefile often leaves parent+child Crop.exe — kill tree repeatedly }
-  for I := 1 to 5 do
+  { Do NOT use taskkill /T — that kills child processes and can close Setup
+    itself when CropSetup was started from Crop.exe. }
+  for I := 1 to 6 do
   begin
-    Exec('taskkill.exe', '/F /T /IM Crop.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    Exec('taskkill.exe', '/F /T /IM CropControl.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    Sleep(400);
+    Exec('taskkill.exe', '/F /IM Crop.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Exec('taskkill.exe', '/F /IM CropControl.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Sleep(500);
   end;
-  Sleep(800);
+  Sleep(1000);
 end;
 
 procedure WriteInstallMarker();

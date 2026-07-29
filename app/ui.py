@@ -5,12 +5,15 @@ from __future__ import annotations
 import queue
 import threading
 import time
+from pathlib import Path
 from tkinter import messagebox
 
 import customtkinter as ctk
 from customtkinter import BooleanVar, IntVar, StringVar
+from PIL import Image
 
-from app.folders import is_wsl, normalize_to_linux, pick_files, pick_folder
+from app.assets import asset_path
+from app.folders import is_wsl, normalize_to_linux, open_in_explorer, pick_files, pick_folder
 from app.processor import (
     BatchRunner,
     CropAnchor,
@@ -21,6 +24,7 @@ from app.processor import (
     SizeSpec,
     scan_images,
 )
+from app.settings_store import load_settings, save_settings
 from app.updater import UpdateInfo, check_async, download_and_install
 from app.version import APP_NAME, COMPANY, DEVELOPER, __version__
 
@@ -53,6 +57,7 @@ class App(ctk.CTk):
         self.geometry("980x640")
         self.minsize(880, 560)
         self.configure(fg_color=BG)
+        self._apply_window_icon()
 
         self._runner: BatchRunner | None = None
         self._worker: threading.Thread | None = None
@@ -69,11 +74,15 @@ class App(ctk.CTk):
         self.skip_upscale_var = BooleanVar(value=True)
         self.strip_exif_var = BooleanVar(value=True)
         self.include_sub_var = BooleanVar(value=False)
+        self.append_size_var = BooleanVar(value=False)
+        self.open_when_done_var = BooleanVar(value=True)
         # Explicit file list when source mode is Files (linux Paths)
         self._input_files: list = []
         self._input_file_labels: list[str] = []
+        self._last_output: Path | None = None
 
         self._build()
+        self._load_saved_settings()
         self.after(UI_POLL_MS, self._poll_events)
 
     def _build(self) -> None:
@@ -88,7 +97,7 @@ class App(ctk.CTk):
         right = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         right.grid(row=0, column=1, sticky="nsew")
         right.grid_columnconfigure(0, weight=1)
-        right.grid_rowconfigure(3, weight=1)
+        right.grid_rowconfigure(6, weight=1)
 
         self._build_left(left)
         self._build_right(right)
@@ -102,33 +111,74 @@ class App(ctk.CTk):
             anchor="w",
         ).grid(row=row, column=0, sticky="w", padx=24, pady=(18, 6))
 
+    def _apply_window_icon(self) -> None:
+        """Taskbar / title-bar icon (favicon or full crop icon)."""
+        ico = asset_path("crop-icon.ico")
+        png = asset_path("favicon.png") or asset_path("crop-icon.png")
+        try:
+            if ico is not None:
+                self.iconbitmap(str(ico))
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            if png is not None:
+                from PIL import ImageTk
+
+                src = Image.open(png).convert("RGBA")
+                src = src.resize((32, 32), Image.Resampling.LANCZOS)
+                self._wm_icon_photo = ImageTk.PhotoImage(src)
+                self.iconphoto(True, self._wm_icon_photo)
+        except Exception:  # noqa: BLE001
+            pass
+
     def _build_left(self, parent: ctk.CTkFrame) -> None:
         title = ctk.CTkFrame(parent, fg_color="transparent")
         title.grid(row=0, column=0, sticky="ew", padx=24, pady=(22, 4))
+        title.grid_columnconfigure(0, weight=1)
+
+        text_col = ctk.CTkFrame(title, fg_color="transparent")
+        text_col.grid(row=0, column=0, sticky="nsw")
         ctk.CTkLabel(
-            title,
+            text_col,
             text=COMPANY,
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color=ACCENT,
         ).pack(anchor="w")
         ctk.CTkLabel(
-            title,
+            text_col,
             text=APP_NAME,
             font=ctk.CTkFont(size=26, weight="bold"),
             text_color=TEXT,
         ).pack(anchor="w", pady=(2, 0))
         ctk.CTkLabel(
-            title,
+            text_col,
             text=f"Batch resize → one folder per size  ·  v{__version__}",
             font=ctk.CTkFont(size=13),
             text_color=MUTED,
         ).pack(anchor="w", pady=(2, 0))
         ctk.CTkLabel(
-            title,
+            text_col,
             text=f"Developed by {DEVELOPER}",
             font=ctk.CTkFont(size=11),
             text_color=MUTED,
         ).pack(anchor="w", pady=(4, 0))
+
+        logo_path = asset_path("crop-icon.png") or asset_path("favicon.png")
+        if logo_path is not None:
+            try:
+                logo_img = Image.open(logo_path).convert("RGBA")
+                self._header_logo = ctk.CTkImage(
+                    light_image=logo_img,
+                    dark_image=logo_img,
+                    size=(72, 72),
+                )
+                ctk.CTkLabel(
+                    title,
+                    text="",
+                    image=self._header_logo,
+                ).grid(row=0, column=1, sticky="e", padx=(16, 0))
+            except Exception:  # noqa: BLE001
+                pass
 
         # Input source: folder or files
         self._label(parent, "SOURCE", 1)
@@ -273,10 +323,33 @@ class App(ctk.CTk):
             border_width=1,
         ).grid(row=13, column=0, sticky="ew", padx=24, pady=(6, 0))
 
+        presets = ctk.CTkFrame(parent, fg_color="transparent")
+        presets.grid(row=14, column=0, sticky="ew", padx=24, pady=(8, 0))
+        ctk.CTkLabel(presets, text="Presets", text_color=MUTED, font=ctk.CTkFont(size=12)).pack(
+            side="left", padx=(0, 8)
+        )
+        for label, sizes, mode in (
+            ("Web", "1920, 1280, 800", "Fit to width"),
+            ("Social", "1080, 720, 480", "Fit to width"),
+            ("HD", "1920x1080, 1280x720", "Exact crop"),
+        ):
+            ctk.CTkButton(
+                presets,
+                text=label,
+                width=64,
+                height=28,
+                fg_color=FIELD,
+                hover_color=LINE,
+                border_width=1,
+                border_color=LINE,
+                font=ctk.CTkFont(size=12),
+                command=lambda s=sizes, m=mode: self._apply_preset(s, m),
+            ).pack(side="left", padx=(0, 6))
+
         # Format
-        self._label(parent, "FORMAT", 14)
+        self._label(parent, "FORMAT", 15)
         fmt_row = ctk.CTkFrame(parent, fg_color="transparent")
-        fmt_row.grid(row=15, column=0, sticky="ew", padx=24)
+        fmt_row.grid(row=16, column=0, sticky="ew", padx=24)
         fmt_row.grid_columnconfigure(1, weight=1)
 
         self.format_seg = ctk.CTkSegmentedButton(
@@ -317,7 +390,7 @@ class App(ctk.CTk):
         self.quality_slider.grid(row=1, column=1, sticky="ew", pady=(12, 0), padx=(8, 0))
 
         opts = ctk.CTkFrame(parent, fg_color="transparent")
-        opts.grid(row=16, column=0, sticky="w", padx=24, pady=(14, 24))
+        opts.grid(row=17, column=0, sticky="w", padx=24, pady=(14, 8))
         ctk.CTkCheckBox(
             opts,
             text="Skip upscale",
@@ -332,6 +405,29 @@ class App(ctk.CTk):
             opts,
             text="Strip EXIF",
             variable=self.strip_exif_var,
+            text_color=MUTED,
+            fg_color=ACCENT,
+            hover_color=ACCENT_H,
+            checkbox_height=18,
+            checkbox_width=18,
+        ).pack(side="left", padx=(0, 16))
+        ctk.CTkCheckBox(
+            opts,
+            text="Add size to filename",
+            variable=self.append_size_var,
+            text_color=MUTED,
+            fg_color=ACCENT,
+            hover_color=ACCENT_H,
+            checkbox_height=18,
+            checkbox_width=18,
+        ).pack(side="left")
+
+        opts2 = ctk.CTkFrame(parent, fg_color="transparent")
+        opts2.grid(row=18, column=0, sticky="w", padx=24, pady=(0, 24))
+        ctk.CTkCheckBox(
+            opts2,
+            text="Open output folder when done",
+            variable=self.open_when_done_var,
             text_color=MUTED,
             fg_color=ACCENT,
             hover_color=ACCENT_H,
@@ -378,8 +474,25 @@ class App(ctk.CTk):
         )
         self.cancel_btn.grid(row=0, column=1)
 
+        post_row = ctk.CTkFrame(parent, fg_color="transparent")
+        post_row.grid(row=2, column=0, sticky="ew", padx=20, pady=(10, 0))
+        post_row.grid_columnconfigure(0, weight=1)
+        self.open_out_btn = ctk.CTkButton(
+            post_row,
+            text="Open output folder",
+            height=34,
+            fg_color=FIELD,
+            hover_color=LINE,
+            border_width=1,
+            border_color=LINE,
+            text_color=TEXT,
+            state="disabled",
+            command=self._open_output_folder,
+        )
+        self.open_out_btn.grid(row=0, column=0, sticky="ew")
+
         update_row = ctk.CTkFrame(parent, fg_color="transparent")
-        update_row.grid(row=2, column=0, sticky="ew", padx=20, pady=(10, 0))
+        update_row.grid(row=3, column=0, sticky="ew", padx=20, pady=(10, 0))
         update_row.grid_columnconfigure(0, weight=1)
         self.update_btn = ctk.CTkButton(
             update_row,
@@ -409,7 +522,7 @@ class App(ctk.CTk):
             anchor="w",
             font=ctk.CTkFont(size=13),
         )
-        self.status_label.grid(row=3, column=0, sticky="ew", padx=20, pady=(14, 6))
+        self.status_label.grid(row=4, column=0, sticky="ew", padx=20, pady=(14, 6))
 
         self.progress = ctk.CTkProgressBar(
             parent,
@@ -418,7 +531,7 @@ class App(ctk.CTk):
             fg_color=FIELD,
             corner_radius=4,
         )
-        self.progress.grid(row=4, column=0, sticky="ew", padx=20, pady=(0, 12))
+        self.progress.grid(row=5, column=0, sticky="ew", padx=20, pady=(0, 12))
         self.progress.set(0)
 
         self.log_box = ctk.CTkTextbox(
@@ -430,12 +543,76 @@ class App(ctk.CTk):
             border_color=LINE,
             activate_scrollbars=True,
         )
-        self.log_box.grid(row=5, column=0, sticky="nsew", padx=20, pady=(0, 20))
-        parent.grid_rowconfigure(5, weight=1)
+        self.log_box.grid(row=6, column=0, sticky="nsew", padx=20, pady=(0, 20))
+        parent.grid_rowconfigure(6, weight=1)
         self.log_box.insert("end", "Errors and summaries appear here.\n")
         self.log_box.configure(state="disabled")
 
     # --- mode / format ---
+
+    def _apply_preset(self, sizes: str, mode_label: str) -> None:
+        self.sizes_var.set(sizes)
+        self.mode_seg.set(mode_label)
+        self._on_mode_change(mode_label)
+
+    def _load_saved_settings(self) -> None:
+        data = load_settings()
+        if not data:
+            return
+        if data.get("input"):
+            self.input_var.set(str(data["input"]))
+        if data.get("output"):
+            self.output_var.set(str(data["output"]))
+        if data.get("sizes"):
+            self.sizes_var.set(str(data["sizes"]))
+        if data.get("mode") in ("Fit to width", "Exact crop"):
+            self.mode_seg.set(str(data["mode"]))
+            self._on_mode_change(str(data["mode"]))
+        if data.get("anchor") in ("Center", "Top", "Bottom", "Left", "Right"):
+            self.anchor_menu.set(str(data["anchor"]))
+        if data.get("format") in ("Original", "JPG", "WebP"):
+            self.format_seg.set(str(data["format"]))
+            self._on_format_change(str(data["format"]))
+        if isinstance(data.get("quality"), int):
+            self.quality_var.set(int(data["quality"]))
+            self._on_quality(float(data["quality"]))
+        for key, var in (
+            ("skip_upscale", self.skip_upscale_var),
+            ("strip_exif", self.strip_exif_var),
+            ("include_sub", self.include_sub_var),
+            ("append_size", self.append_size_var),
+            ("open_when_done", self.open_when_done_var),
+        ):
+            if key in data:
+                var.set(bool(data[key]))
+
+    def _persist_settings(self) -> None:
+        save_settings(
+            {
+                "input": self.input_var.get().strip(),
+                "output": self.output_var.get().strip(),
+                "sizes": self.sizes_var.get().strip(),
+                "mode": self.mode_seg.get(),
+                "anchor": self.anchor_menu.get(),
+                "format": self.format_seg.get(),
+                "quality": int(self.quality_var.get()),
+                "skip_upscale": self.skip_upscale_var.get(),
+                "strip_exif": self.strip_exif_var.get(),
+                "include_sub": self.include_sub_var.get(),
+                "append_size": self.append_size_var.get(),
+                "open_when_done": self.open_when_done_var.get(),
+            }
+        )
+
+    def _open_output_folder(self) -> None:
+        path = self._last_output
+        if path is None and self.output_var.get().strip():
+            path = normalize_to_linux(self.output_var.get())
+        if path is None or not path.exists():
+            messagebox.showinfo("Output", "No output folder yet. Run a batch first.")
+            return
+        if not open_in_explorer(path):
+            messagebox.showerror("Output", f"Could not open:\n{path}")
 
     def _current_mode(self) -> ResizeMode:
         return "exact_crop" if self.mode_seg.get() == "Exact crop" else "fit_width"
@@ -715,7 +892,12 @@ class App(ctk.CTk):
             skip_upscale=self.skip_upscale_var.get(),
             strip_exif=self.strip_exif_var.get(),
             include_subfolders=self.include_sub_var.get(),
+            append_size_to_name=self.append_size_var.get(),
         )
+
+        self._last_output = output_path
+        self._persist_settings()
+        self.open_out_btn.configure(state="disabled")
 
         self._running = True
         self.start_btn.configure(state="disabled")
@@ -869,6 +1051,8 @@ class App(ctk.CTk):
                     self._running = False
                     self.start_btn.configure(state="normal")
                     self.cancel_btn.configure(state="disabled")
+                    if self._last_output and self._last_output.exists():
+                        self.open_out_btn.configure(state="normal")
                     color = OK if latest.errors == 0 else WARN
                     self.status_label.configure(
                         text=latest.message or "Done.",
@@ -876,6 +1060,13 @@ class App(ctk.CTk):
                     )
                     if latest.total > 0:
                         self.progress.set(1.0)
+                    if (
+                        latest.errors == 0
+                        and self.open_when_done_var.get()
+                        and self._last_output
+                        and self._last_output.exists()
+                    ):
+                        open_in_explorer(self._last_output)
 
         self.after(UI_POLL_MS, self._poll_events)
 
@@ -892,10 +1083,35 @@ class App(ctk.CTk):
 
 
 def run_app() -> None:
+    # One visible app at a time (avoids locked Crop.exe during updates)
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        kernel32.SetLastError(0)
+        handle = kernel32.CreateMutexW(None, False, "Local\\WDGCropSystemSingleton")
+        already = kernel32.GetLastError() == 183  # ERROR_ALREADY_EXISTS
+        if already:
+            try:
+                from tkinter import messagebox as _mb
+
+                _mb.showinfo("WDG Crop System", "WDG Crop System is already running.")
+            except Exception:  # noqa: BLE001
+                pass
+            if handle:
+                kernel32.CloseHandle(handle)
+            return
+    except Exception:  # noqa: BLE001
+        pass
+
     app = App()
 
     def _on_close() -> None:
         # Stop any batch worker, tell control API we exited, then quit cleanly.
+        try:
+            app._persist_settings()
+        except Exception:  # noqa: BLE001
+            pass
         try:
             if app._runner is not None:
                 app._runner.cancel()

@@ -89,6 +89,8 @@ def save_image(
     prepared.save(dest, pillow_format, **kwargs)
 
 
-def output_filename(source: Path, ext: str) -> str:
-    """Keep original basename, apply new extension."""
+def output_filename(source: Path, ext: str, *, size_label: str | None = None) -> str:
+    """Keep original basename, optional size label, apply new extension."""
+    if size_label:
+        return f"{source.stem}_{size_label}{ext}"
     return f"{source.stem}{ext}"

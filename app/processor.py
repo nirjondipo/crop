@@ -47,6 +47,8 @@ class JobSettings:
     skip_upscale: bool = True
     strip_exif: bool = True
     include_subfolders: bool = False
+    # e.g. photo_1920.webp instead of photo.webp
+    append_size_to_name: bool = False
 
 
 def resolve_input_images(settings: JobSettings) -> list[Path]:
@@ -195,7 +197,8 @@ def process_one(
     def _save(img: Image.Image) -> Path:
         result = _transform(img, size, settings)
         pillow_format, ext = resolve_save_format(source, settings.format)
-        dest = dest_dir / output_filename(source, ext)
+        label = size.folder_name(settings.mode) if settings.append_size_to_name else None
+        dest = dest_dir / output_filename(source, ext, size_label=label)
         save_image(result, dest, pillow_format, settings.quality, settings.strip_exif)
         return dest
 

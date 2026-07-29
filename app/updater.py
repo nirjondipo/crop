@@ -117,17 +117,24 @@ def download_file(url: str, dest: Path, on_progress=None) -> None:
 
 
 def launch_installer(setup_path: Path) -> None:
-    """Run CropSetup.exe so the user can update over the existing install."""
+    """Start CropSetup.exe fully detached (not a child of Crop.exe)."""
+    setup_win = _to_windows_path(Path(setup_path)) if os.name != "nt" else str(setup_path)
     if os.name == "nt":
+        # `start` breaks the parent/child link so Setup survives if Crop is killed
         subprocess.Popen(
-            [str(setup_path)],
-            cwd=str(setup_path.parent),
-            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,  # type: ignore[attr-defined]
+            ["cmd.exe", "/c", "start", "", setup_win],
+            cwd=str(Path(setup_path).parent),
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0x01000000),  # type: ignore[attr-defined]
+            close_fds=True,
         )
     else:
-        win = _to_windows_path(setup_path)
         subprocess.Popen(
-            ["powershell.exe", "-NoProfile", "-Command", f"Start-Process -FilePath '{win}'"],
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-Command",
+                f"Start-Process -FilePath '{setup_win}'",
+            ],
         )
 
 
@@ -142,43 +149,54 @@ def _to_windows_path(path: Path) -> str:
 
 def schedule_installer_after_exit(setup_path: Path, wait_seconds: int = 2) -> Path:
     """
-    Start Setup only after Crop.exe has exited so files are not locked.
+    Quit Crop first, then start Setup as a separate process (not a child of Crop).
     Returns path to the helper script that was launched.
     """
     setup = Path(setup_path)
+    setup_win = str(setup) if os.name == "nt" else _to_windows_path(setup)
+    wait = max(1, int(wait_seconds))
+
     if os.name == "nt":
-        setup_win = str(setup)
         helper = Path(tempfile.gettempdir()) / "crop-run-update.cmd"
+        # Kill Crop processes (no /T), wait until gone, then start Setup via `start`
         helper.write_text(
             "\r\n".join(
                 [
                     "@echo off",
-                    f"timeout /t {max(1, int(wait_seconds))} /nobreak >nul",
+                    f"timeout /t {wait} /nobreak >nul",
+                    "taskkill /F /IM Crop.exe >nul 2>&1",
+                    "taskkill /F /IM CropControl.exe >nul 2>&1",
                     ":wait",
                     'tasklist /FI "IMAGENAME eq Crop.exe" 2>nul | find /I "Crop.exe" >nul',
                     "if not errorlevel 1 (",
+                    "  taskkill /F /IM Crop.exe >nul 2>&1",
                     "  timeout /t 1 /nobreak >nul",
                     "  goto wait",
                     ")",
+                    "timeout /t 1 /nobreak >nul",
                     f'start "" "{setup_win}"',
                     "",
                 ]
             ),
             encoding="utf-8",
         )
+        flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+        flags |= getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0x01000000)
         subprocess.Popen(
             ["cmd.exe", "/c", str(helper)],
             cwd=str(setup.parent),
-            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,  # type: ignore[attr-defined]
+            creationflags=flags,
             close_fds=True,
         )
         return helper
 
-    # WSL / non-Windows: wait via PowerShell then start
-    setup_win = _to_windows_path(setup)
     ps = (
-        f"Start-Sleep -Seconds {max(1, int(wait_seconds))}; "
-        "while (Get-Process -Name Crop -ErrorAction SilentlyContinue) { Start-Sleep -Seconds 1 }; "
+        f"Start-Sleep -Seconds {wait}; "
+        "Get-Process -Name Crop,CropControl -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; "
+        "while (Get-Process -Name Crop -ErrorAction SilentlyContinue) { "
+        "  Get-Process -Name Crop -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; "
+        "  Start-Sleep -Seconds 1 "
+        "}; "
         f"Start-Process -FilePath '{setup_win}'"
     )
     subprocess.Popen(["powershell.exe", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps])

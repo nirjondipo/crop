@@ -243,3 +243,34 @@ def normalize_to_linux(path_str: str) -> Path:
     if re.match(r"^[A-Za-z]:[\\/]", text):
         return windows_to_wsl(text)
     return Path(text)
+
+
+def open_in_explorer(path: Path) -> bool:
+    """Open a folder in the system file manager. Returns True on success."""
+    try:
+        target = path if path.is_dir() else path.parent
+        if not target.exists():
+            return False
+        if os.name == "nt":
+            os.startfile(str(target))  # type: ignore[attr-defined]
+            return True
+        if is_wsl() and _powershell_bin():
+            win = wsl_to_windows(str(target))
+            if win:
+                subprocess.Popen(
+                    ["explorer.exe", win],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                return True
+        opener = shutil.which("xdg-open") or shutil.which("open")
+        if opener:
+            subprocess.Popen(
+                [opener, str(target)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return True
+    except OSError:
+        return False
+    return False
