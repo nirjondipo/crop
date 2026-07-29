@@ -10,10 +10,11 @@ from tkinter import messagebox
 import customtkinter as ctk
 from customtkinter import BooleanVar, IntVar, StringVar
 
-from app.folders import is_wsl, normalize_to_linux, pick_folder
+from app.folders import is_wsl, normalize_to_linux, pick_files, pick_folder
 from app.processor import (
     BatchRunner,
     CropAnchor,
+    IMAGE_EXTENSIONS,
     JobSettings,
     ProgressEvent,
     ResizeMode,
@@ -66,6 +67,9 @@ class App(ctk.CTk):
         self.skip_upscale_var = BooleanVar(value=True)
         self.strip_exif_var = BooleanVar(value=True)
         self.include_sub_var = BooleanVar(value=False)
+        # Explicit file list when source mode is Files (linux Paths)
+        self._input_files: list = []
+        self._input_file_labels: list[str] = []
 
         self._build()
         self.after(UI_POLL_MS, self._poll_events)
@@ -112,12 +116,34 @@ class App(ctk.CTk):
             text_color=MUTED,
         ).pack(anchor="w", pady=(2, 0))
 
-        # Input
-        self._label(parent, "INPUT FOLDER", 1)
+        # Input source: folder or files
+        self._label(parent, "SOURCE", 1)
+        self.source_seg = ctk.CTkSegmentedButton(
+            parent,
+            values=["Folder", "Files"],
+            command=self._on_source_change,
+            height=34,
+            selected_color=ACCENT,
+            selected_hover_color=ACCENT_H,
+            unselected_color=FIELD,
+            unselected_hover_color=LINE,
+        )
+        self.source_seg.set("Folder")
+        self.source_seg.grid(row=2, column=0, sticky="ew", padx=24)
+
+        self.input_label = ctk.CTkLabel(
+            parent,
+            text="INPUT FOLDER",
+            text_color=MUTED,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            anchor="w",
+        )
+        self.input_label.grid(row=3, column=0, sticky="w", padx=24, pady=(14, 6))
+
         in_row = ctk.CTkFrame(parent, fg_color="transparent")
-        in_row.grid(row=2, column=0, sticky="ew", padx=24)
+        in_row.grid(row=4, column=0, sticky="ew", padx=24)
         in_row.grid_columnconfigure(0, weight=1)
-        ctk.CTkEntry(
+        self.input_entry = ctk.CTkEntry(
             in_row,
             textvariable=self.input_var,
             placeholder_text=(
@@ -127,7 +153,8 @@ class App(ctk.CTk):
             fg_color=FIELD,
             border_color=LINE,
             border_width=1,
-        ).grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        )
+        self.input_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
         ctk.CTkButton(
             in_row,
             text="Browse",
@@ -140,7 +167,7 @@ class App(ctk.CTk):
             command=self._browse_input,
         ).grid(row=0, column=1)
 
-        ctk.CTkCheckBox(
+        self.include_sub_cb = ctk.CTkCheckBox(
             parent,
             text="Include subfolders",
             variable=self.include_sub_var,
@@ -149,12 +176,13 @@ class App(ctk.CTk):
             hover_color=ACCENT_H,
             checkbox_height=18,
             checkbox_width=18,
-        ).grid(row=3, column=0, sticky="w", padx=24, pady=(10, 0))
+        )
+        self.include_sub_cb.grid(row=5, column=0, sticky="w", padx=24, pady=(10, 0))
 
         # Output
-        self._label(parent, "OUTPUT FOLDER", 4)
+        self._label(parent, "OUTPUT FOLDER", 6)
         out_row = ctk.CTkFrame(parent, fg_color="transparent")
-        out_row.grid(row=5, column=0, sticky="ew", padx=24)
+        out_row.grid(row=7, column=0, sticky="ew", padx=24)
         out_row.grid_columnconfigure(0, weight=1)
         ctk.CTkEntry(
             out_row,
@@ -180,7 +208,7 @@ class App(ctk.CTk):
         ).grid(row=0, column=1)
 
         # Mode
-        self._label(parent, "MODE", 6)
+        self._label(parent, "MODE", 8)
         self.mode_seg = ctk.CTkSegmentedButton(
             parent,
             values=["Fit to width", "Exact crop"],
@@ -192,10 +220,10 @@ class App(ctk.CTk):
             unselected_hover_color=LINE,
         )
         self.mode_seg.set("Fit to width")
-        self.mode_seg.grid(row=7, column=0, sticky="ew", padx=24)
+        self.mode_seg.grid(row=9, column=0, sticky="ew", padx=24)
 
         self.anchor_row = ctk.CTkFrame(parent, fg_color="transparent")
-        self.anchor_row.grid(row=8, column=0, sticky="ew", padx=24, pady=(10, 0))
+        self.anchor_row.grid(row=10, column=0, sticky="ew", padx=24, pady=(10, 0))
         ctk.CTkLabel(self.anchor_row, text="Anchor", text_color=MUTED).pack(
             side="left", padx=(0, 10)
         )
@@ -212,8 +240,8 @@ class App(ctk.CTk):
         self.anchor_menu.pack(side="left")
         self.anchor_row.grid_remove()
 
-        # Sizes — single field (far fewer widgets = snappier UI)
-        self._label(parent, "SIZES", 9)
+        # Sizes
+        self._label(parent, "SIZES", 11)
         self.sizes_hint = ctk.CTkLabel(
             parent,
             text="Widths separated by commas, e.g. 1920, 1280, 800",
@@ -221,7 +249,7 @@ class App(ctk.CTk):
             font=ctk.CTkFont(size=12),
             anchor="w",
         )
-        self.sizes_hint.grid(row=10, column=0, sticky="ew", padx=24)
+        self.sizes_hint.grid(row=12, column=0, sticky="ew", padx=24)
         ctk.CTkEntry(
             parent,
             textvariable=self.sizes_var,
@@ -229,12 +257,12 @@ class App(ctk.CTk):
             fg_color=FIELD,
             border_color=LINE,
             border_width=1,
-        ).grid(row=11, column=0, sticky="ew", padx=24, pady=(6, 0))
+        ).grid(row=13, column=0, sticky="ew", padx=24, pady=(6, 0))
 
         # Format
-        self._label(parent, "FORMAT", 12)
+        self._label(parent, "FORMAT", 14)
         fmt_row = ctk.CTkFrame(parent, fg_color="transparent")
-        fmt_row.grid(row=13, column=0, sticky="ew", padx=24)
+        fmt_row.grid(row=15, column=0, sticky="ew", padx=24)
         fmt_row.grid_columnconfigure(1, weight=1)
 
         self.format_seg = ctk.CTkSegmentedButton(
@@ -275,7 +303,7 @@ class App(ctk.CTk):
         self.quality_slider.grid(row=1, column=1, sticky="ew", pady=(12, 0), padx=(8, 0))
 
         opts = ctk.CTkFrame(parent, fg_color="transparent")
-        opts.grid(row=14, column=0, sticky="w", padx=24, pady=(14, 24))
+        opts.grid(row=16, column=0, sticky="w", padx=24, pady=(14, 24))
         ctk.CTkCheckBox(
             opts,
             text="Skip upscale",
@@ -382,6 +410,45 @@ class App(ctk.CTk):
     def _current_anchor(self) -> CropAnchor:
         return self.anchor_menu.get().lower()  # type: ignore[return-value]
 
+    def _source_is_files(self) -> bool:
+        return self.source_seg.get() == "Files"
+
+    def _on_source_change(self, value: str) -> None:
+        if value == "Files":
+            self.input_label.configure(text="INPUT FILES")
+            self.include_sub_cb.grid_remove()
+            self.input_entry.configure(
+                placeholder_text="Browse to pick one or more images…"
+            )
+            if self._input_files:
+                self._set_files_display()
+            else:
+                self.input_var.set("")
+        else:
+            self.input_label.configure(text="INPUT FOLDER")
+            self.include_sub_cb.grid()
+            self.input_entry.configure(
+                placeholder_text=(
+                    r"e.g. C:\Users\...\Pictures" if is_wsl() else "Select source images folder"
+                )
+            )
+            # Keep folder path if user typed one; clear file-selection summary
+            if self._input_files and "file" in self.input_var.get().lower():
+                self.input_var.set("")
+            self._input_files = []
+            self._input_file_labels = []
+
+    def _set_files_display(self) -> None:
+        n = len(self._input_files)
+        if n == 0:
+            self.input_var.set("")
+            return
+        first = self._input_file_labels[0]
+        if n == 1:
+            self.input_var.set(first)
+        else:
+            self.input_var.set(f"{n} files selected · {first}")
+
     def _on_mode_change(self, value: str) -> None:
         if value == "Exact crop":
             self.anchor_row.grid()
@@ -406,12 +473,41 @@ class App(ctk.CTk):
         self.quality_label.configure(text=f"Quality {int(value)}")
 
     def _browse_input(self) -> None:
+        if self._source_is_files():
+            initial = None
+            if self._input_files:
+                initial = str(self._input_files[0].parent)
+            elif self.input_var.get().strip() and "files selected" not in self.input_var.get().lower():
+                try:
+                    p = normalize_to_linux(self.input_var.get())
+                    initial = str(p.parent if p.suffix else p)
+                except Exception:  # noqa: BLE001
+                    initial = None
+            picked = pick_files(title="Select image files", initial_linux=initial)
+            if not picked:
+                return
+            files = []
+            labels = []
+            for display, linux in picked:
+                if linux.suffix.lower() in IMAGE_EXTENSIONS:
+                    files.append(linux)
+                    labels.append(display)
+            if not files:
+                messagebox.showerror("Input", "No supported image files in that selection.")
+                return
+            self._input_files = files
+            self._input_file_labels = labels
+            self._set_files_display()
+            return
+
         current = self.input_var.get().strip()
         initial = str(normalize_to_linux(current)) if current else None
         picked = pick_folder(title="Select input folder", initial_linux=initial)
         if picked:
             display, _linux = picked
             self.input_var.set(display)
+            self._input_files = []
+            self._input_file_labels = []
 
     def _browse_output(self) -> None:
         current = self.output_var.get().strip()
@@ -479,37 +575,49 @@ class App(ctk.CTk):
         if self._running:
             return
 
-        if not self.input_var.get().strip():
-            messagebox.showerror("Input", "Choose a valid input folder.")
-            return
         if not self.output_var.get().strip():
             messagebox.showerror("Output", "Choose an output folder.")
             return
 
-        input_path = normalize_to_linux(self.input_var.get())
         output_path = normalize_to_linux(self.output_var.get())
+        input_folder = None
+        input_files = None
 
-        if not input_path.is_dir():
-            messagebox.showerror(
-                "Input",
-                f"Choose a valid input folder.\n(Resolved to: {input_path})",
-            )
-            return
-        try:
-            if input_path.resolve() == output_path.resolve():
-                messagebox.showerror("Folders", "Input and output must be different.")
+        if self._source_is_files():
+            if not self._input_files:
+                messagebox.showerror("Input", "Browse and select one or more image files.")
                 return
-        except OSError:
-            pass
+            input_files = list(self._input_files)
+            images = [p for p in input_files if p.is_file()]
+            if not images:
+                messagebox.showerror("Input", "Selected files are missing or unsupported.")
+                return
+        else:
+            if not self.input_var.get().strip():
+                messagebox.showerror("Input", "Choose a valid input folder.")
+                return
+            input_folder = normalize_to_linux(self.input_var.get())
+            if not input_folder.is_dir():
+                messagebox.showerror(
+                    "Input",
+                    f"Choose a valid input folder.\n(Resolved to: {input_folder})",
+                )
+                return
+            try:
+                if input_folder.resolve() == output_path.resolve():
+                    messagebox.showerror("Folders", "Input and output must be different.")
+                    return
+            except OSError:
+                pass
+            images = scan_images(input_folder, self.include_sub_var.get())
+            if not images:
+                messagebox.showerror("Input", "No supported images found in that folder.")
+                return
 
         sizes = self._parse_sizes()
         if not sizes:
             return
 
-        images = scan_images(input_path, self.include_sub_var.get())
-        if not images:
-            messagebox.showerror("Input", "No supported images found in that folder.")
-            return
         if len(images) > WARN_IMAGE_COUNT:
             if not messagebox.askyesno(
                 "Large batch",
@@ -524,11 +632,12 @@ class App(ctk.CTk):
             return
 
         settings = JobSettings(
-            input_folder=input_path,
             output_folder=output_path,
             mode=self._current_mode(),
             sizes=sizes,
             format=self._current_format(),  # type: ignore[arg-type]
+            input_folder=input_folder,
+            input_files=input_files,
             quality=int(self.quality_var.get()),
             crop_anchor=self._current_anchor(),
             skip_upscale=self.skip_upscale_var.get(),

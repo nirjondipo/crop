@@ -144,6 +144,90 @@ def pick_folder(title: str = "Select folder", initial_linux: str | None = None) 
     return chosen, Path(chosen)
 
 
+def pick_files_windows(
+    title: str = "Select images",
+    initial: str | None = None,
+) -> list[str] | None:
+    """Native Windows multi-select file dialog. Returns Windows paths or None."""
+    ps = _powershell_bin()
+    if not ps:
+        return None
+
+    start = initial or default_windows_start()
+    if start.startswith("/mnt/"):
+        start = wsl_to_windows(start)
+    # InitialDirectory must be a folder
+    if re.match(r"^[A-Za-z]:\\", start):
+        # If it looks like a file (has an extension), use parent directory
+        leaf = start.rstrip("\\").split("\\")[-1]
+        if "." in leaf and not start.endswith("\\"):
+            start = "\\".join(start.rstrip("\\").split("\\")[:-1]) or start
+
+    def q(s: str) -> str:
+        return s.replace("'", "''")
+
+    script = f"""
+Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.OpenFileDialog
+$dialog.Title = '{q(title)}'
+$dialog.Multiselect = $true
+$dialog.CheckFileExists = $true
+$dialog.Filter = 'Images (*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.tif;*.tiff)|*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.tif;*.tiff;*.JPG;*.JPEG;*.PNG;*.WEBP;*.BMP;*.TIF;*.TIFF|All files (*.*)|*.*'
+try {{ $dialog.InitialDirectory = '{q(start)}' }} catch {{}}
+$res = $dialog.ShowDialog()
+if ($res -eq [System.Windows.Forms.DialogResult]::OK) {{
+    $dialog.FileNames | ForEach-Object {{ Write-Output $_ }}
+}}
+"""
+    try:
+        result = subprocess.run(
+            [ps, "-STA", "-NoProfile", "-Command", script],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    paths = [ln.strip().strip("\r") for ln in (result.stdout or "").splitlines() if ln.strip()]
+    paths = [p for p in paths if re.match(r"^[A-Za-z]:\\", p)]
+    return paths or None
+
+
+def pick_files(
+    title: str = "Select images",
+    initial_linux: str | None = None,
+) -> list[tuple[str, Path]] | None:
+    """
+    Pick one or more image files.
+
+    Returns list of ``(display_path, linux_path)`` or None if cancelled.
+    """
+    if is_wsl() and _powershell_bin():
+        initial_win = wsl_to_windows(initial_linux) if initial_linux else None
+        chosen = pick_files_windows(title=title, initial=initial_win)
+        if not chosen:
+            return None
+        return [(p, windows_to_wsl(p)) for p in chosen]
+
+    from tkinter import filedialog
+
+    start = initial_linux
+    if not start:
+        start = "/mnt/c/Users" if Path("/mnt/c/Users").is_dir() else str(Path.home())
+    chosen = filedialog.askopenfilenames(
+        title=title,
+        initialdir=start,
+        filetypes=[
+            ("Images", "*.jpg *.jpeg *.png *.webp *.bmp *.tif *.tiff"),
+            ("All files", "*.*"),
+        ],
+    )
+    if not chosen:
+        return None
+    return [(p, Path(p)) for p in chosen]
+
+
 def normalize_to_linux(path_str: str) -> Path:
     """Accept Windows or Linux path text from the entry field."""
     text = path_str.strip().strip('"')

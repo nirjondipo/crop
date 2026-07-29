@@ -36,16 +36,30 @@ class SizeSpec:
 
 @dataclass
 class JobSettings:
-    input_folder: Path
     output_folder: Path
     mode: ResizeMode
     sizes: list[SizeSpec]
     format: OutputFormat
+    input_folder: Path | None = None
+    input_files: list[Path] | None = None
     quality: int = 80
     crop_anchor: CropAnchor = "center"
     skip_upscale: bool = True
     strip_exif: bool = True
     include_subfolders: bool = False
+
+
+def resolve_input_images(settings: JobSettings) -> list[Path]:
+    """Images from an explicit file list, or by scanning a folder."""
+    if settings.input_files:
+        out: list[Path] = []
+        for path in settings.input_files:
+            if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS:
+                out.append(path)
+        return out
+    if settings.input_folder is not None:
+        return scan_images(settings.input_folder, settings.include_subfolders)
+    return []
 
 
 @dataclass
@@ -221,11 +235,11 @@ class BatchRunner:
         self._cancel.set()
 
     def run(self) -> None:
-        images = scan_images(self.settings.input_folder, self.settings.include_subfolders)
+        images = resolve_input_images(self.settings)
         sizes = self.settings.sizes
         if not images:
             self.on_progress(
-                ProgressEvent(0, 0, "", "No images found in input folder.", "error", 0, True)
+                ProgressEvent(0, 0, "", "No images found.", "error", 0, True)
             )
             return
         if not sizes:
