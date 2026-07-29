@@ -125,18 +125,72 @@ def launch_installer(setup_path: Path) -> None:
             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,  # type: ignore[attr-defined]
         )
     else:
-        win = str(setup_path)
-        if win.startswith("/mnt/"):
-            drive = win[5].upper()
-            rest = win[6:].replace("/", "\\")
-            win = f"{drive}:{rest}"
+        win = _to_windows_path(setup_path)
         subprocess.Popen(
             ["powershell.exe", "-NoProfile", "-Command", f"Start-Process -FilePath '{win}'"],
         )
 
 
-def download_and_install(info: UpdateInfo, on_status=None) -> Path:
-    """Download setup to a temp file and launch it. Returns setup path."""
+def _to_windows_path(path: Path) -> str:
+    win = str(path)
+    if win.startswith("/mnt/") and len(win) > 6:
+        drive = win[5].upper()
+        rest = win[6:].replace("/", "\\")
+        return f"{drive}:{rest}"
+    return win
+
+
+def schedule_installer_after_exit(setup_path: Path, wait_seconds: int = 2) -> Path:
+    """
+    Start Setup only after Crop.exe has exited so files are not locked.
+    Returns path to the helper script that was launched.
+    """
+    setup = Path(setup_path)
+    if os.name == "nt":
+        setup_win = str(setup)
+        helper = Path(tempfile.gettempdir()) / "crop-run-update.cmd"
+        helper.write_text(
+            "\r\n".join(
+                [
+                    "@echo off",
+                    f"timeout /t {max(1, int(wait_seconds))} /nobreak >nul",
+                    ":wait",
+                    'tasklist /FI "IMAGENAME eq Crop.exe" 2>nul | find /I "Crop.exe" >nul',
+                    "if not errorlevel 1 (",
+                    "  timeout /t 1 /nobreak >nul",
+                    "  goto wait",
+                    ")",
+                    f'start "" "{setup_win}"',
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        subprocess.Popen(
+            ["cmd.exe", "/c", str(helper)],
+            cwd=str(setup.parent),
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,  # type: ignore[attr-defined]
+            close_fds=True,
+        )
+        return helper
+
+    # WSL / non-Windows: wait via PowerShell then start
+    setup_win = _to_windows_path(setup)
+    ps = (
+        f"Start-Sleep -Seconds {max(1, int(wait_seconds))}; "
+        "while (Get-Process -Name Crop -ErrorAction SilentlyContinue) { Start-Sleep -Seconds 1 }; "
+        f"Start-Process -FilePath '{setup_win}'"
+    )
+    subprocess.Popen(["powershell.exe", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps])
+    return setup
+
+
+def download_and_install(info: UpdateInfo, on_status=None, *, quit_first: bool = True) -> Path:
+    """
+    Download setup to a temp file and launch it.
+    When quit_first=True (default), Setup starts only after Crop.exe exits —
+    call this then close the app immediately.
+    """
     if not info.download_url:
         raise RuntimeError("No download URL")
     if on_status:
@@ -144,8 +198,11 @@ def download_and_install(info: UpdateInfo, on_status=None) -> Path:
     tmp = Path(tempfile.gettempdir()) / f"CropSetup-{info.latest}.exe"
     download_file(info.download_url, tmp, on_progress=None)
     if on_status:
-        on_status("Opening installer…")
-    launch_installer(tmp)
+        on_status("Closing app, then opening installer…")
+    if quit_first:
+        schedule_installer_after_exit(tmp, wait_seconds=2)
+    else:
+        launch_installer(tmp)
     return tmp
 
 

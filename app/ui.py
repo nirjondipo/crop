@@ -761,7 +761,8 @@ class App(ctk.CTk):
         msg = (
             f"Update available: v{info.current} → v{info.latest}\n\n"
             f"{info.notes or 'New version ready.'}\n\n"
-            "Download and open the installer now?"
+            "Download the installer now?\n"
+            "This app will close so Setup can replace files, then the installer opens."
         )
         if not messagebox.askyesno(f"Update {APP_NAME}", msg):
             self.update_label.configure(
@@ -780,32 +781,32 @@ class App(ctk.CTk):
                     on_status=lambda s: self.after(
                         0, lambda: self.update_label.configure(text=s, text_color=MUTED)
                     ),
+                    quit_first=True,
                 )
-                self.after(
-                    0,
-                    lambda: self._on_update_downloaded(path, None),
-                )
+                self.after(0, lambda: self._on_update_downloaded(path, None))
             except Exception as exc:  # noqa: BLE001
                 self.after(0, lambda: self._on_update_downloaded(None, exc))
 
         threading.Thread(target=_install, daemon=True).start()
 
     def _on_update_downloaded(self, path, err: Exception | None) -> None:
-        self.update_btn.configure(state="normal", text="Check for updates")
         if err is not None:
+            self.update_btn.configure(state="normal", text="Check for updates")
             self.update_label.configure(text=f"Download failed: {err}", text_color=WARN)
             messagebox.showerror("Update", f"Could not download update:\n{err}")
             return
         self.update_label.configure(
-            text="Installer opened — finish Setup, then restart the app.",
+            text="Closing so Setup can install…",
             text_color=OK,
         )
         messagebox.showinfo(
             f"Update {APP_NAME}",
-            "The installer is open.\n\n"
-            "Finish the Setup wizard (Next → Install).\n"
-            f"Then close this window and open {APP_NAME} again.",
+            "Download complete.\n\n"
+            "This window will close now.\n"
+            "The installer opens automatically afterward — finish Setup, then reopen the app.",
         )
+        # Quit so Crop.exe unlocks; helper starts Setup after exit
+        self.after(200, self.destroy)
 
     def _enqueue_event(self, event: ProgressEvent) -> None:
         self._events.put(event)

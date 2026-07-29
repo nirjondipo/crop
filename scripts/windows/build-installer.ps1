@@ -148,7 +148,7 @@ Ok "crop-icon.ico (BMP)"
 $issBody = @"
 ; Auto-patched by build-installer.ps1
 #define MyAppName "WDG Crop System"
-#define MyAppVersion "1.0.2"
+#define MyAppVersion "1.0.3"
 #define MyAppPublisher "WebDGallery"
 #define MyAppURL "https://github.com/nirjondipo/crop"
 #define MyAppExeName "Crop.exe"
@@ -167,6 +167,9 @@ DisableProgramGroupPage=yes
 DisableDirPage=no
 UsePreviousAppDir=yes
 PrivilegesRequired=lowest
+CloseApplications=force
+CloseApplicationsFilter=Crop.exe,CropControl.exe
+RestartApplications=no
 OutputDir=$DistOut
 OutputBaseFilename=CropSetup
 Compression=lzma2
@@ -187,8 +190,8 @@ WelcomeLabel2=This will install [name/ver] on your computer.%n%nWDG Crop System 
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Desktop shortcut:"; Flags: unchecked
 
 [Files]
-Source: "$DistOut\Crop.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "$DistOut\CropControl.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "$DistOut\Crop.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
+Source: "$DistOut\CropControl.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
 Source: "$DistOut\crop-icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
@@ -212,6 +215,22 @@ begin
   Result := S;
   StringChangeEx(Result, '\', '\\', True);
   StringChangeEx(Result, '"', '\"', True);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+  I: Integer;
+begin
+  Result := '';
+  NeedsRestart := False;
+  for I := 1 to 5 do
+  begin
+    Exec('taskkill.exe', '/F /T /IM Crop.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Exec('taskkill.exe', '/F /T /IM CropControl.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Sleep(400);
+  end;
+  Sleep(800);
 end;
 
 procedure WriteInstallMarker();
