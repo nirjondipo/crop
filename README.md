@@ -62,8 +62,8 @@ Use **Check for updates** in the app, or download a newer **CropSetup.exe** from
 To publish a release from this repo:
 
 ```bash
-git tag v1.0.2
-git push origin v1.0.2
+git tag v1.0.1
+git push origin v1.0.1
 ```
 
 That triggers CI to build and attach `CropSetup.exe` to the release. Keep the tag in sync with `app/version.py`.

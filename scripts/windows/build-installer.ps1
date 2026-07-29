@@ -126,14 +126,29 @@ Remove-Item (Join-Path $DistOut "CropControl.exe") -Force -ErrorAction SilentlyC
     (Join-Path $Specs "CropControl.spec")
 if (-not (Test-Path (Join-Path $DistOut "CropControl.exe"))) { throw "CropControl.exe was not produced" }
 Ok "CropControl.exe"
-Copy-Item (Join-Path $Specs "crop-icon.ico") (Join-Path $DistOut "crop-icon.ico") -Force
-Ok "crop-icon.ico"
+
+Step "Building Windows-compatible icon (BMP ICO for Setup)"
+$IconPng = Join-Path $Specs "crop-icon.png"
+if (-not (Test-Path $IconPng)) { $IconPng = Join-Path $WorkSrc "app\crop-icon.png" }
+$IconIco = Join-Path $Specs "crop-icon.ico"
+& $PackPy -c @"
+from pathlib import Path
+from PIL import Image
+src = Image.open(r'$IconPng').convert('RGBA')
+sizes = [(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)]
+out = Path(r'$IconIco')
+src.save(out, format='ICO', sizes=sizes, bitmap_format='bmp')
+print('wrote', out, out.stat().st_size)
+"@
+Copy-Item $IconIco (Join-Path $DistOut "crop-icon.ico") -Force
+Copy-Item $IconIco (Join-Path $WorkSrc "app\crop-icon.ico") -Force -ErrorAction SilentlyContinue
+Ok "crop-icon.ico (BMP)"
 
 # Point Inno [Files] at DistOut - specs already write there; update Source paths in iss
 $issBody = @"
 ; Auto-patched by build-installer.ps1
 #define MyAppName "Crop"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "1.0.0"
 #define MyAppPublisher "Crop"
 #define MyAppURL "https://github.com/nirjondipo/crop"
 #define MyAppExeName "Crop.exe"

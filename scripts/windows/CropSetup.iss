@@ -2,7 +2,7 @@
 ; Output: dist\CropSetup.exe
 
 #define MyAppName "Crop"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "1.0.0"
 #define MyAppPublisher "Crop"
 #define MyAppURL "https://github.com/nirjondipo/crop"
 #define MyAppExeName "Crop.exe"
