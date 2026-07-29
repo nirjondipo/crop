@@ -9,3 +9,8 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .DS_Store
+
+# Local-only (never commit)
+private/
+index.php
+api.php
