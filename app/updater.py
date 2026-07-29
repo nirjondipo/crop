@@ -53,7 +53,37 @@ def _http_json(url: str, timeout: float = 8.0) -> dict | list | None:
         return None
 
 
-def check_github() -> UpdateInfo | None:
+def _http_headers(url: str, timeout: float = 8.0) -> dict[str, str] | None:
+    req = urllib.request.Request(
+        url,
+        method="HEAD",
+        headers={"User-Agent": f"Crop-Updater/{__version__}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return {k.lower(): v for k, v in resp.headers.items()}
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError):
+        return None
+
+
+def _http_text(url: str, timeout: float = 8.0) -> str | None:
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": f"Crop-Updater/{__version__}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError):
+        return None
+
+
+def _setup_download_url(tag: str) -> str:
+    tag = tag if tag.startswith("v") else f"v{tag}"
+    return f"https://github.com/{GITHUB_REPO}/releases/download/{tag}/CropSetup.exe"
+
+
+def _check_github_api() -> UpdateInfo | None:
     data = _http_json(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
     if not isinstance(data, dict) or "tag_name" not in data:
         return None
@@ -76,7 +106,7 @@ def check_github() -> UpdateInfo | None:
                 download = str(asset.get("browser_download_url") or "")
                 break
     if not download:
-        return None
+        download = _setup_download_url(tag)
     return UpdateInfo(
         current=__version__,
         latest=tag.lstrip("vV"),
@@ -85,6 +115,46 @@ def check_github() -> UpdateInfo | None:
         channel="github",
         available=is_newer(tag, __version__),
     )
+
+
+def _check_github_web() -> UpdateInfo | None:
+    """
+    Fallback when api.github.com is rate-limited (60 req/hour unauthenticated).
+    Uses the public releases/latest redirect and Atom feed — no API quota.
+    """
+    tag = ""
+    # 1) /releases/latest → redirect to /releases/tag/vX.Y.Z
+    headers = _http_headers(f"https://github.com/{GITHUB_REPO}/releases/latest")
+    if headers:
+        loc = headers.get("location") or ""
+        m = re.search(r"/releases/tag/(v?[\w.-]+)", loc)
+        if m:
+            tag = m.group(1)
+    # 2) Atom feed
+    if not tag:
+        atom = _http_text(f"https://github.com/{GITHUB_REPO}/releases.atom")
+        if atom:
+            m = re.search(r"/releases/tag/(v?[\w.-]+)", atom)
+            if m:
+                tag = m.group(1)
+    if not tag:
+        return None
+    latest = tag.lstrip("vV")
+    return UpdateInfo(
+        current=__version__,
+        latest=latest,
+        notes="",
+        download_url=_setup_download_url(tag),
+        channel="github",
+        available=is_newer(latest, __version__),
+    )
+
+
+def check_github() -> UpdateInfo | None:
+    info = _check_github_api()
+    if info is not None:
+        return info
+    return _check_github_web()
 
 
 def check_for_updates() -> UpdateInfo:

@@ -932,7 +932,7 @@ class App(ctk.CTk):
             return
         if info is None or info.channel == "none":
             self.update_label.configure(
-                text="No GitHub release found (publish a release with CropSetup.exe).",
+                text="Could not reach GitHub (network or rate limit). Try again later, or download from Releases.",
                 text_color=MUTED,
             )
             return
