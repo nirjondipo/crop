@@ -237,12 +237,40 @@ def pick_files(
     return [(p, Path(p)) for p in chosen]
 
 
-def normalize_to_linux(path_str: str) -> Path:
-    """Accept Windows or Linux path text from the entry field."""
-    text = path_str.strip().strip('"')
+def normalize_path(path_str: str) -> Path:
+    """
+    Normalize a path typed or pasted into the UI.
+
+    - Native Windows: keep ``B:/Work/...`` / ``B:\\Work\\...`` as a real Windows Path
+    - WSL: convert Windows paths to ``/mnt/b/Work/...``
+    """
+    text = path_str.strip().strip('"').strip("'")
+    if not text:
+        return Path(text)
+
+    # Drive-letter path (Windows style)
     if re.match(r"^[A-Za-z]:[\\/]", text):
-        return windows_to_wsl(text)
+        if os.name == "nt":
+            # Native Windows exe — do NOT map to /mnt/...
+            return Path(text)
+        if is_wsl():
+            return windows_to_wsl(text)
+        return Path(text)
+
+    # Accidentally saved WSL path while running on Windows
+    if os.name == "nt":
+        m = re.match(r"^[/\\]mnt[/\\]([a-zA-Z])[/\\]?(.*)$", text.replace("\\", "/"))
+        if m:
+            drive = m.group(1).upper()
+            rest = (m.group(2) or "").replace("/", "\\")
+            return Path(f"{drive}:\\{rest}" if rest else f"{drive}:\\")
+
     return Path(text)
+
+
+def normalize_to_linux(path_str: str) -> Path:
+    """Backward-compatible alias for ``normalize_path``."""
+    return normalize_path(path_str)
 
 
 def open_in_explorer(path: Path) -> bool:

@@ -148,7 +148,7 @@ Ok "crop-icon.ico (BMP)"
 $issBody = @"
 ; Auto-patched by build-installer.ps1
 #define MyAppName "WDG Crop System"
-#define MyAppVersion "2.0.1"
+#define MyAppVersion "2.0.2"
 #define MyAppPublisher "WebDGallery"
 #define MyAppURL "https://github.com/nirjondipo/crop"
 #define MyAppExeName "Crop.exe"

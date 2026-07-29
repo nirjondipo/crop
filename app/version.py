@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "2.0.1"
+__version__ = "2.0.2"
 
 # Branding
 APP_NAME = "WDG Crop System"
