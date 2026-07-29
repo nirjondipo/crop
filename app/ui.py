@@ -21,6 +21,8 @@ from app.processor import (
     SizeSpec,
     scan_images,
 )
+from app.updater import UpdateInfo, check_async, download_and_install
+from app.version import __version__
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("green")
@@ -111,7 +113,7 @@ class App(ctk.CTk):
         ).pack(anchor="w")
         ctk.CTkLabel(
             title,
-            text="Batch resize → one folder per size",
+            text=f"Batch resize → one folder per size  ·  v{__version__}",
             font=ctk.CTkFont(size=13),
             text_color=MUTED,
         ).pack(anchor="w", pady=(2, 0))
@@ -364,6 +366,30 @@ class App(ctk.CTk):
         )
         self.cancel_btn.grid(row=0, column=1)
 
+        update_row = ctk.CTkFrame(parent, fg_color="transparent")
+        update_row.grid(row=2, column=0, sticky="ew", padx=20, pady=(10, 0))
+        update_row.grid_columnconfigure(0, weight=1)
+        self.update_btn = ctk.CTkButton(
+            update_row,
+            text="Check for updates",
+            height=34,
+            fg_color=FIELD,
+            hover_color=LINE,
+            border_width=1,
+            border_color=LINE,
+            text_color=TEXT,
+            command=self._check_updates,
+        )
+        self.update_btn.grid(row=0, column=0, sticky="ew")
+        self.update_label = ctk.CTkLabel(
+            update_row,
+            text="",
+            text_color=MUTED,
+            anchor="w",
+            font=ctk.CTkFont(size=12),
+        )
+        self.update_label.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+
         self.status_label = ctk.CTkLabel(
             parent,
             text="Ready",
@@ -371,7 +397,7 @@ class App(ctk.CTk):
             anchor="w",
             font=ctk.CTkFont(size=13),
         )
-        self.status_label.grid(row=2, column=0, sticky="ew", padx=20, pady=(18, 6))
+        self.status_label.grid(row=3, column=0, sticky="ew", padx=20, pady=(14, 6))
 
         self.progress = ctk.CTkProgressBar(
             parent,
@@ -380,7 +406,7 @@ class App(ctk.CTk):
             fg_color=FIELD,
             corner_radius=4,
         )
-        self.progress.grid(row=3, column=0, sticky="ew", padx=20, pady=(0, 12))
+        self.progress.grid(row=4, column=0, sticky="ew", padx=20, pady=(0, 12))
         self.progress.set(0)
 
         self.log_box = ctk.CTkTextbox(
@@ -392,8 +418,8 @@ class App(ctk.CTk):
             border_color=LINE,
             activate_scrollbars=True,
         )
-        self.log_box.grid(row=4, column=0, sticky="nsew", padx=20, pady=(0, 20))
-        parent.grid_rowconfigure(4, weight=1)
+        self.log_box.grid(row=5, column=0, sticky="nsew", padx=20, pady=(0, 20))
+        parent.grid_rowconfigure(5, weight=1)
         self.log_box.insert("end", "Errors and summaries appear here.\n")
         self.log_box.configure(state="disabled")
 
@@ -472,6 +498,28 @@ class App(ctk.CTk):
     def _on_quality(self, value: float) -> None:
         self.quality_label.configure(text=f"Quality {int(value)}")
 
+    def _with_window_aside(self, fn):
+        """On WSL, hide Crop so the Windows dialog is not covered by the WSLg window."""
+        if not is_wsl():
+            return fn()
+        try:
+            self.update_idletasks()
+            self.withdraw()
+            self.update()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            return fn()
+        finally:
+            try:
+                self.deiconify()
+                self.lift()
+                self.focus_force()
+                self.attributes("-topmost", True)
+                self.after(200, lambda: self.attributes("-topmost", False))
+            except Exception:  # noqa: BLE001
+                pass
+
     def _browse_input(self) -> None:
         if self._source_is_files():
             initial = None
@@ -483,7 +531,11 @@ class App(ctk.CTk):
                     initial = str(p.parent if p.suffix else p)
                 except Exception:  # noqa: BLE001
                     initial = None
-            picked = pick_files(title="Select image files", initial_linux=initial)
+
+            def _pick():
+                return pick_files(title="Select image files", initial_linux=initial)
+
+            picked = self._with_window_aside(_pick)
             if not picked:
                 return
             files = []
@@ -502,7 +554,11 @@ class App(ctk.CTk):
 
         current = self.input_var.get().strip()
         initial = str(normalize_to_linux(current)) if current else None
-        picked = pick_folder(title="Select input folder", initial_linux=initial)
+
+        def _pick_folder():
+            return pick_folder(title="Select input folder", initial_linux=initial)
+
+        picked = self._with_window_aside(_pick_folder)
         if picked:
             display, _linux = picked
             self.input_var.set(display)
@@ -512,7 +568,11 @@ class App(ctk.CTk):
     def _browse_output(self) -> None:
         current = self.output_var.get().strip()
         initial = str(normalize_to_linux(current)) if current else None
-        picked = pick_folder(title="Select output folder", initial_linux=initial)
+
+        def _pick_folder():
+            return pick_folder(title="Select output folder", initial_linux=initial)
+
+        picked = self._with_window_aside(_pick_folder)
         if picked:
             display, _linux = picked
             self.output_var.set(display)
@@ -661,6 +721,79 @@ class App(ctk.CTk):
         if self._runner:
             self._runner.cancel()
             self.status_label.configure(text="Cancelling…", text_color=WARN)
+
+    def _check_updates(self) -> None:
+        self.update_btn.configure(state="disabled", text="Checking…")
+        self.update_label.configure(text="Looking for updates on GitHub…", text_color=MUTED)
+
+        def _done(info: UpdateInfo | None, err: Exception | None) -> None:
+            self.after(0, lambda: self._on_update_result(info, err))
+
+        check_async(_done)
+
+    def _on_update_result(self, info: UpdateInfo | None, err: Exception | None) -> None:
+        self.update_btn.configure(state="normal", text="Check for updates")
+        if err is not None:
+            self.update_label.configure(text=f"Update check failed: {err}", text_color=WARN)
+            return
+        if info is None or info.channel == "none":
+            self.update_label.configure(
+                text="No GitHub release found (publish a release with CropSetup.exe).",
+                text_color=MUTED,
+            )
+            return
+        if not info.available:
+            self.update_label.configure(text=f"Up to date (v{info.current})", text_color=OK)
+            return
+
+        msg = (
+            f"Update available: v{info.current} → v{info.latest}\n\n"
+            f"{info.notes or 'New version ready.'}\n\n"
+            "Download and open the installer now?"
+        )
+        if not messagebox.askyesno("Update Crop", msg):
+            self.update_label.configure(
+                text=f"Update available: v{info.latest} — click again to install",
+                text_color=WARN,
+            )
+            return
+
+        self.update_btn.configure(state="disabled", text="Downloading…")
+        self.update_label.configure(text="Downloading installer…", text_color=MUTED)
+
+        def _install():
+            try:
+                path = download_and_install(
+                    info,
+                    on_status=lambda s: self.after(
+                        0, lambda: self.update_label.configure(text=s, text_color=MUTED)
+                    ),
+                )
+                self.after(
+                    0,
+                    lambda: self._on_update_downloaded(path, None),
+                )
+            except Exception as exc:  # noqa: BLE001
+                self.after(0, lambda: self._on_update_downloaded(None, exc))
+
+        threading.Thread(target=_install, daemon=True).start()
+
+    def _on_update_downloaded(self, path, err: Exception | None) -> None:
+        self.update_btn.configure(state="normal", text="Check for updates")
+        if err is not None:
+            self.update_label.configure(text=f"Download failed: {err}", text_color=WARN)
+            messagebox.showerror("Update", f"Could not download update:\n{err}")
+            return
+        self.update_label.configure(
+            text="Installer opened — finish Setup, then restart Crop.",
+            text_color=OK,
+        )
+        messagebox.showinfo(
+            "Update",
+            "The installer is open.\n\n"
+            "Finish the Setup wizard (Next → Install).\n"
+            "Then close this Crop window and open the new version.",
+        )
 
     def _enqueue_event(self, event: ProgressEvent) -> None:
         self._events.put(event)

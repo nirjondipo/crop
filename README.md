@@ -1,18 +1,49 @@
-# Crop — Desktop Image Batch Resizer
+# Crop
 
-Python desktop app that batch-resizes images into **one folder per size**. Every image from the input folder is written into each size folder.
+Desktop app for batch-resizing images into **one output folder per size**.
+
+Every selected image is written into each size folder. Supports fit-to-width and exact crop modes, multiple sizes per job, and JPG / WebP / original format output.
 
 ## Features
 
-- Native folder pickers for input and output
+- Folder or multi-file input with native file pickers
 - **Fit to width** — keep aspect ratio
-- **Exact crop** — crop by anchor (center/top/bottom/left/right), then resize to `W×H`
+- **Exact crop** — crop by anchor (center, top, bottom, left, right), then resize to `W×H`
 - Multiple sizes per job
 - Output format: Original, JPG, or WebP
-- Quality slider, skip upscale, strip EXIF
+- Quality control, skip upscale, strip EXIF
 - Background processing with progress, cancel, and log
+- In-app **Check for updates** via [GitHub Releases](https://github.com/nirjondipo/crop/releases)
 
-## Output layout
+## Install (Windows)
+
+1. Download **CropSetup.exe** from the [latest release](https://github.com/nirjondipo/crop/releases/latest)
+2. Run the installer and choose an install folder
+3. Optionally create a desktop shortcut
+4. Open **Crop** from the Start Menu
+
+Install location defaults to `%LOCALAPPDATA%\Crop`. Uninstall from **Settings → Apps** or the Start Menu entry.
+
+Crop only runs when you open it — nothing starts at login.
+
+## Usage
+
+1. Choose **Folder** or **Files** as the source
+2. Pick an output folder
+3. Select mode and enter sizes
+4. Choose format / quality options
+5. Click **Start**
+
+### Sizes
+
+| Mode | Example |
+|------|---------|
+| Fit to width | `1920, 1280, 800` |
+| Exact crop | `1920x1080, 1280x720, 800x600` |
+
+Exact-crop folders are named like `1920x1080`.
+
+### Output layout
 
 ```text
 output/
@@ -24,49 +55,50 @@ output/
     photo2.webp
 ```
 
-Exact crop sizes use folder names like `1920x1080`.
+## Updates
 
-## Setup
+Use **Check for updates** in the app, or download a newer **CropSetup.exe** from [Releases](https://github.com/nirjondipo/crop/releases) and run it over the existing install.
 
-On Ubuntu/Debian/WSL, install Tk once (required for the GUI):
+To publish a release from this repo:
 
 ```bash
-sudo apt-get install -y python3-tk
+git tag v1.0.2
+git push origin v1.0.2
 ```
 
-Then:
+That triggers CI to build and attach `CropSetup.exe` to the release. Keep the tag in sync with `app/version.py`.
+
+## Build from source
+
+### Requirements
+
+- Python 3.10+
+- Windows (for the packaged installer), or Linux/macOS for running from source
+- On Debian/Ubuntu: `python3-tk` for the GUI
+
+### Run from source
 
 ```bash
-cd ~/server/projects/crop
+git clone https://github.com/nirjondipo/crop.git
+cd crop
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+python main.py
 ```
 
-## Web launcher (dashboard)
+### Windows installer
 
-Open **http://localhost:1000/crop/** for **Run** / **Exit** controls.
+From the repo root on Windows:
 
-One-time (already done if you used the install script):
-
-```bash
-bash ~/server/projects/crop/scripts/install-control-service.sh
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\build-installer.ps1
 ```
 
-This starts a small local control API (`127.0.0.1:18765`) as a systemd user service so the PHP page can open and close the desktop app.
+Output: `dist\CropSetup.exe`
 
-### WSL2 display
+The build script can install Python / PyInstaller / Inno Setup via winget when needed.
 
-CustomTkinter needs a working GUI display:
+## License
 
-- **WSLg** (Windows 11): usually works out of the box
-- Otherwise install/configure an X server and set `DISPLAY`
-
-If the window does not open, check that `echo $DISPLAY` is set and a display server is running.
-
-## Sizes input
-
-- **Fit to width:** `1920, 1280, 800`
-- **Exact crop:** `1920x1080, 1280x720, 800x600`
-
-Each size becomes its own output folder; every image is written into every size folder.
+See the repository for license details.

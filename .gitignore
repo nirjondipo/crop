@@ -1,5 +1,9 @@
 .venv/
+.venv-win-build/
 .run/
+.tools/
+build/
+dist/
 __pycache__/
 *.py[cod]
 *.egg-info/

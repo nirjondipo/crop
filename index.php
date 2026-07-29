@@ -8,6 +8,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Crop System</title>
+    <link rel="icon" type="image/png" href="app/favicon.png">
+    <link rel="apple-touch-icon" href="app/crop-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40;400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
@@ -200,8 +202,13 @@
         </div>
 
         <p class="hint" id="hint" hidden>
-            Control service offline. One-time setup in WSL:<br>
-            <code>bash ~/server/projects/crop/scripts/install-control-service.sh</code>
+            Control service offline. Start it, or install the fast Windows app:<br>
+            <code>powershell -ExecutionPolicy Bypass -File \\wsl$\Ubuntu\home\mdsolaiman\server\projects\crop\scripts\windows\install.ps1</code>
+        </p>
+        <p class="hint" id="native-hint">
+            Install once with Desktop <code>CropSetup.exe</code> (Next → Install → Finish).<br>
+            Crop runs <strong>only when you open it</strong> — nothing starts at Windows login.<br>
+            Use <strong>Run</strong> / <strong>Exit</strong> here, or Start Menu → Crop.
         </p>
     </div>
 
@@ -222,9 +229,14 @@
         }
 
         function applyStatus(data) {
-            const online = data && data.ok !== false || data.running !== undefined;
             const serviceDown = data && data.message && String(data.message).includes('Control service');
             hintEl.hidden = !serviceDown;
+
+            const nativeHint = document.getElementById('native-hint');
+            if (nativeHint) {
+                // Hide install tip once native Windows install is detected
+                nativeHint.hidden = !!(data && data.native_windows);
+            }
 
             if (serviceDown) {
                 stateEl.textContent = 'Service offline';
@@ -238,7 +250,10 @@
             const running = !!(data && data.running);
             stateEl.textContent = running ? 'Running' : 'Stopped';
             dotEl.className = 'dot ' + (running ? 'on' : 'off');
-            pidEl.textContent = running && data.pid ? 'PID ' + data.pid : '';
+            let extra = '';
+            if (running && data.pid) extra = 'PID ' + data.pid;
+            if (data && data.native_windows) extra = (extra ? extra + ' · ' : '') + 'Windows';
+            pidEl.textContent = extra;
             btnRun.disabled = busy || running;
             btnExit.disabled = busy || !running;
         }

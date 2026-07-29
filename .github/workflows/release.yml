@@ -1,0 +1,62 @@
+# Publish CropSetup.exe when you push a version tag (e.g. v1.0.1)
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync version from tag
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}".TrimStart("v")
+          (Get-Content app\version.py -Raw) -replace '__version__\s*=\s*"[^"]+"', "__version__ = `"$ver`"" |
+            Set-Content app\version.py -NoNewline
+          $iss = Get-Content scripts\windows\CropSetup.iss -Raw
+          $iss = $iss -replace '#define MyAppVersion "[^"]+"', "#define MyAppVersion `"$ver`""
+          Set-Content scripts\windows\CropSetup.iss -Value $iss -NoNewline
+          Write-Host "Version set to $ver"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build Crop.exe
+        run: python -m PyInstaller --noconfirm --clean --distpath dist --workpath build\Crop scripts\windows\Crop.spec
+
+      - name: Build CropControl.exe
+        run: python -m PyInstaller --noconfirm --clean --distpath dist --workpath build\CropControl scripts\windows\CropControl.spec
+
+      - name: Copy icon
+        run: Copy-Item scripts\windows\crop-icon.ico dist\crop-icon.ico -Force
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Compile CropSetup.exe
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" scripts\windows\CropSetup.iss
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/CropSetup.exe
+            dist/Crop.exe
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
