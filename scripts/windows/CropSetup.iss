@@ -2,7 +2,7 @@
 ; Output: dist\CropSetup.exe
 
 #define MyAppName "WDG Crop System"
-#define MyAppVersion "2.0.2"
+#define MyAppVersion "2.0.3"
 #define MyAppPublisher "WebDGallery"
 #define MyAppURL "https://github.com/nirjondipo/crop"
 #define MyAppExeName "Crop.exe"

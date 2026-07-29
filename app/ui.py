@@ -48,6 +48,8 @@ ERR = "#e06c6c"
 WARN_IMAGE_COUNT = 500
 UI_POLL_MS = 50
 PROGRESS_MIN_INTERVAL = 0.08  # seconds between progress bar redraws
+RIGHT_PANEL_WIDTH = 340
+STATUS_TEXT_MAX = 48
 
 
 class App(ctk.CTk):
@@ -86,16 +88,22 @@ class App(ctk.CTk):
         self.after(UI_POLL_MS, self._poll_events)
 
     def _build(self) -> None:
-        self.grid_columnconfigure(0, weight=3)
-        self.grid_columnconfigure(1, weight=2)
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=0, minsize=RIGHT_PANEL_WIDTH)
         self.grid_rowconfigure(0, weight=1)
 
         left = ctk.CTkFrame(self, fg_color=PANEL, corner_radius=0)
         left.grid(row=0, column=0, sticky="nsew")
         left.grid_columnconfigure(0, weight=1)
 
-        right = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+        right = ctk.CTkFrame(
+            self,
+            fg_color=BG,
+            corner_radius=0,
+            width=RIGHT_PANEL_WIDTH,
+        )
         right.grid(row=0, column=1, sticky="nsew")
+        right.grid_propagate(False)
         right.grid_columnconfigure(0, weight=1)
         right.grid_rowconfigure(6, weight=1)
 
@@ -511,7 +519,10 @@ class App(ctk.CTk):
             text="",
             text_color=MUTED,
             anchor="w",
+            justify="left",
             font=ctk.CTkFont(size=12),
+            width=RIGHT_PANEL_WIDTH - 40,
+            wraplength=RIGHT_PANEL_WIDTH - 48,
         )
         self.update_label.grid(row=1, column=0, sticky="ew", pady=(6, 0))
 
@@ -520,7 +531,10 @@ class App(ctk.CTk):
             text="Ready",
             text_color=MUTED,
             anchor="w",
+            justify="left",
             font=ctk.CTkFont(size=13),
+            width=RIGHT_PANEL_WIDTH - 40,
+            wraplength=RIGHT_PANEL_WIDTH - 48,
         )
         self.status_label.grid(row=4, column=0, sticky="ew", padx=20, pady=(14, 6))
 
@@ -554,6 +568,20 @@ class App(ctk.CTk):
         self.sizes_var.set(sizes)
         self.mode_seg.set(mode_label)
         self._on_mode_change(mode_label)
+
+    def _elide(self, text: str, max_len: int = STATUS_TEXT_MAX) -> str:
+        text = (text or "").replace("\n", " ").strip()
+        if len(text) <= max_len:
+            return text
+        if max_len <= 1:
+            return "…"
+        return text[: max_len - 1] + "…"
+
+    def _set_status(self, text: str, color: str = MUTED) -> None:
+        self.status_label.configure(text=self._elide(text), text_color=color)
+
+    def _set_update_status(self, text: str, color: str = MUTED) -> None:
+        self.update_label.configure(text=self._elide(text, 56), text_color=color)
 
     def _load_saved_settings(self) -> None:
         data = load_settings()
@@ -905,7 +933,7 @@ class App(ctk.CTk):
         self.progress.set(0)
         self._clear_log()
         self._log(f"Starting · {len(images)} images · {len(sizes)} sizes")
-        self.status_label.configure(text="Working…", text_color=MUTED)
+        self._set_status("Working…", MUTED)
 
         self._runner = BatchRunner(settings=settings, on_progress=self._enqueue_event)
         self._worker = threading.Thread(target=self._runner.run, daemon=True)
@@ -914,11 +942,11 @@ class App(ctk.CTk):
     def _cancel(self) -> None:
         if self._runner:
             self._runner.cancel()
-            self.status_label.configure(text="Cancelling…", text_color=WARN)
+            self._set_status("Cancelling…", WARN)
 
     def _check_updates(self) -> None:
         self.update_btn.configure(state="disabled", text="Checking…")
-        self.update_label.configure(text="Looking for updates on GitHub…", text_color=MUTED)
+        self._set_update_status("Looking for updates on GitHub…", MUTED)
 
         def _done(info: UpdateInfo | None, err: Exception | None) -> None:
             self.after(0, lambda: self._on_update_result(info, err))
@@ -928,16 +956,16 @@ class App(ctk.CTk):
     def _on_update_result(self, info: UpdateInfo | None, err: Exception | None) -> None:
         self.update_btn.configure(state="normal", text="Check for updates")
         if err is not None:
-            self.update_label.configure(text=f"Update check failed: {err}", text_color=WARN)
+            self._set_update_status(f"Update check failed: {err}", WARN)
             return
         if info is None or info.channel == "none":
-            self.update_label.configure(
-                text="Could not reach GitHub (network or rate limit). Try again later, or download from Releases.",
-                text_color=MUTED,
+            self._set_update_status(
+                "Could not reach GitHub (network or rate limit). Try again later, or download from Releases.",
+                MUTED,
             )
             return
         if not info.available:
-            self.update_label.configure(text=f"Up to date (v{info.current})", text_color=OK)
+            self._set_update_status(f"Up to date (v{info.current})", OK)
             return
 
         msg = (
@@ -947,21 +975,21 @@ class App(ctk.CTk):
             "This app will close so Setup can replace files, then the installer opens."
         )
         if not messagebox.askyesno(f"Update {APP_NAME}", msg):
-            self.update_label.configure(
-                text=f"Update available: v{info.latest} — click again to install",
-                text_color=WARN,
+            self._set_update_status(
+                f"Update available: v{info.latest} — click again to install",
+                WARN,
             )
             return
 
         self.update_btn.configure(state="disabled", text="Downloading…")
-        self.update_label.configure(text="Downloading installer…", text_color=MUTED)
+        self._set_update_status("Downloading installer…", MUTED)
 
         def _install():
             try:
                 path = download_and_install(
                     info,
                     on_status=lambda s: self.after(
-                        0, lambda: self.update_label.configure(text=s, text_color=MUTED)
+                        0, lambda: self._set_update_status(s, MUTED)
                     ),
                     quit_first=True,
                 )
@@ -974,13 +1002,10 @@ class App(ctk.CTk):
     def _on_update_downloaded(self, path, err: Exception | None) -> None:
         if err is not None:
             self.update_btn.configure(state="normal", text="Check for updates")
-            self.update_label.configure(text=f"Download failed: {err}", text_color=WARN)
+            self._set_update_status(f"Download failed: {err}", WARN)
             messagebox.showerror("Update", f"Could not download update:\n{err}")
             return
-        self.update_label.configure(
-            text="Closing so Setup can install…",
-            text_color=OK,
-        )
+        self._set_update_status("Closing so Setup can install…", OK)
         messagebox.showinfo(
             f"Update {APP_NAME}",
             "Download complete.\n\n"
@@ -1039,13 +1064,12 @@ class App(ctk.CTk):
                 self._last_progress_ui = now
                 if latest.total > 0:
                     self.progress.set(latest.current / latest.total)
-                    self.status_label.configure(
-                        text=(
-                            f"{latest.current}/{latest.total}"
-                            + (f"  ·  {latest.filename}" if latest.filename else "")
-                            + f"  ·  errors {latest.errors}"
-                        ),
-                        text_color=TEXT,
+                    name = self._elide(latest.filename, 28) if latest.filename else ""
+                    self._set_status(
+                        f"{latest.current}/{latest.total}"
+                        + (f"  ·  {name}" if name else "")
+                        + f"  ·  err {latest.errors}",
+                        TEXT,
                     )
                 if latest.done:
                     self._running = False
@@ -1054,10 +1078,7 @@ class App(ctk.CTk):
                     if self._last_output and self._last_output.exists():
                         self.open_out_btn.configure(state="normal")
                     color = OK if latest.errors == 0 else WARN
-                    self.status_label.configure(
-                        text=latest.message or "Done.",
-                        text_color=color,
-                    )
+                    self._set_status(latest.message or "Done.", color)
                     if latest.total > 0:
                         self.progress.set(1.0)
                     if (
