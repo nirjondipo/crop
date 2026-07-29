@@ -1,9 +1,9 @@
 ; Crop — Inno Setup installer
 ; Output: dist\CropSetup.exe
 
-#define MyAppName "Crop"
-#define MyAppVersion "1.0.0"
-#define MyAppPublisher "Crop"
+#define MyAppName "WDG Crop System"
+#define MyAppVersion "1.0.1"
+#define MyAppPublisher "WebDGallery"
 #define MyAppURL "https://github.com/nirjondipo/crop"
 #define MyAppExeName "Crop.exe"
 #define MyControlExeName "CropControl.exe"
@@ -36,8 +36,8 @@ ArchitecturesInstallIn64BitMode=x64compatible
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Messages]
-WelcomeLabel2=This will install [name/ver] on your computer.%n%nCrop runs only when you open it. Nothing starts at Windows login.
-WizardSelectDirLabel3=Setup will install Crop into the following folder. You can keep the default or choose another location.
+WelcomeLabel2=This will install [name/ver] on your computer.%n%nWDG Crop System by WebDGallery.%nDeveloped by Md Solaiman.%n%nThe app runs only when you open it. Nothing starts at Windows login.
+WizardSelectDirLabel3=Setup will install WDG Crop System into the following folder. You can keep the default or choose another location.
 WizardSelectTasksLabel2=Select the optional tasks you want Setup to perform, then click Next.
 
 [Tasks]
@@ -55,7 +55,7 @@ Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\crop-icon.ico"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch Crop"; Flags: nowait postinstall skipifsilent unchecked
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch WDG Crop System"; Flags: nowait postinstall skipifsilent unchecked
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\.run"

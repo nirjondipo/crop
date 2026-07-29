@@ -147,9 +147,9 @@ Ok "crop-icon.ico (BMP)"
 # Point Inno [Files] at DistOut - specs already write there; update Source paths in iss
 $issBody = @"
 ; Auto-patched by build-installer.ps1
-#define MyAppName "Crop"
-#define MyAppVersion "1.0.0"
-#define MyAppPublisher "Crop"
+#define MyAppName "WDG Crop System"
+#define MyAppVersion "1.0.1"
+#define MyAppPublisher "WebDGallery"
 #define MyAppURL "https://github.com/nirjondipo/crop"
 #define MyAppExeName "Crop.exe"
 #define MyControlExeName "CropControl.exe"
@@ -181,7 +181,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Messages]
-WelcomeLabel2=This will install [name/ver] on your computer.%n%nCrop runs only when you open it.
+WelcomeLabel2=This will install [name/ver] on your computer.%n%nWDG Crop System by WebDGallery.%nDeveloped by Md Solaiman.%n%nThe app runs only when you open it.
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Desktop shortcut:"; Flags: unchecked
@@ -197,7 +197,7 @@ Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\crop-icon.ico"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch Crop"; Flags: nowait postinstall skipifsilent unchecked
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch WDG Crop System"; Flags: nowait postinstall skipifsilent unchecked
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\.run"

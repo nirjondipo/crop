@@ -1,8 +1,8 @@
-# Crop
+# WDG Crop System
 
-Desktop app for batch-resizing images into **one output folder per size**.
+Desktop batch image resizer by **WebDGallery** (developed by Md Solaiman).
 
-Every selected image is written into each size folder. Supports fit-to-width and exact crop modes, multiple sizes per job, and JPG / WebP / original format output.
+Batch-resize images into **one output folder per size**. Supports fit-to-width and exact crop modes, multiple sizes per job, and JPG / WebP / original format output.
 
 ## Features
 
@@ -20,7 +20,7 @@ Every selected image is written into each size folder. Supports fit-to-width and
 1. Download **CropSetup.exe** from the [latest release](https://github.com/nirjondipo/crop/releases/latest)
 2. Run the installer and choose an install folder
 3. Optionally create a desktop shortcut
-4. Open **Crop** from the Start Menu
+4. Open **WDG Crop System** from the Start Menu
 
 Install location defaults to `%LOCALAPPDATA%\Crop`. Uninstall from **Settings → Apps** or the Start Menu entry.
 

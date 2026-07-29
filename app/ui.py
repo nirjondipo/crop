@@ -22,7 +22,7 @@ from app.processor import (
     scan_images,
 )
 from app.updater import UpdateInfo, check_async, download_and_install
-from app.version import __version__
+from app.version import APP_NAME, COMPANY, DEVELOPER, __version__
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("green")
@@ -49,7 +49,7 @@ PROGRESS_MIN_INTERVAL = 0.08  # seconds between progress bar redraws
 class App(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("Crop")
+        self.title(f"{APP_NAME}")
         self.geometry("980x640")
         self.minsize(880, 560)
         self.configure(fg_color=BG)
@@ -107,16 +107,28 @@ class App(ctk.CTk):
         title.grid(row=0, column=0, sticky="ew", padx=24, pady=(22, 4))
         ctk.CTkLabel(
             title,
-            text="Crop",
-            font=ctk.CTkFont(size=28, weight="bold"),
-            text_color=TEXT,
+            text=COMPANY,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=ACCENT,
         ).pack(anchor="w")
+        ctk.CTkLabel(
+            title,
+            text=APP_NAME,
+            font=ctk.CTkFont(size=26, weight="bold"),
+            text_color=TEXT,
+        ).pack(anchor="w", pady=(2, 0))
         ctk.CTkLabel(
             title,
             text=f"Batch resize → one folder per size  ·  v{__version__}",
             font=ctk.CTkFont(size=13),
             text_color=MUTED,
         ).pack(anchor="w", pady=(2, 0))
+        ctk.CTkLabel(
+            title,
+            text=f"Developed by {DEVELOPER}",
+            font=ctk.CTkFont(size=11),
+            text_color=MUTED,
+        ).pack(anchor="w", pady=(4, 0))
 
         # Input source: folder or files
         self._label(parent, "SOURCE", 1)
@@ -751,7 +763,7 @@ class App(ctk.CTk):
             f"{info.notes or 'New version ready.'}\n\n"
             "Download and open the installer now?"
         )
-        if not messagebox.askyesno("Update Crop", msg):
+        if not messagebox.askyesno(f"Update {APP_NAME}", msg):
             self.update_label.configure(
                 text=f"Update available: v{info.latest} — click again to install",
                 text_color=WARN,
@@ -785,14 +797,14 @@ class App(ctk.CTk):
             messagebox.showerror("Update", f"Could not download update:\n{err}")
             return
         self.update_label.configure(
-            text="Installer opened — finish Setup, then restart Crop.",
+            text="Installer opened — finish Setup, then restart the app.",
             text_color=OK,
         )
         messagebox.showinfo(
-            "Update",
+            f"Update {APP_NAME}",
             "The installer is open.\n\n"
             "Finish the Setup wizard (Next → Install).\n"
-            "Then close this Crop window and open the new version.",
+            f"Then close this window and open {APP_NAME} again.",
         )
 
     def _enqueue_event(self, event: ProgressEvent) -> None:
